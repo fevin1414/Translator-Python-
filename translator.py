@@ -7,59 +7,78 @@ import io
 import tempfile
 import os
 import time
+import tkinter as tk
+from tkinter import Label, Text, Button, Scrollbar
+import threading
 
 translator = Translator()
 
-# To capture audio
-mic = sr.Microphone()
-rec = sr.Recognizer()
+class TranslatorApp:
+    def __init__(self, master):
+        self.master = master
+        master.title("Speech Translator")
 
-while True:
-    with mic as source:
-        inp_lang = 'hi'
-        out_lang = 'en'
+        self.input_text = Text(master, height=5, width=50)
+        self.input_text.pack()
 
-        print("Please speak now...")
+        self.output_label = Label(master, text="")
+        self.output_label.pack()
 
-        rec.adjust_for_ambient_noise(source, duration=0.2)
+        self.quit_button = Button(master, text="Quit", command=master.quit)
+        self.quit_button.pack()
 
-        audio = rec.listen(source)
+        # Create an instance of Recognizer
+        self.recognizer = sr.Recognizer()
 
-        try:
-            rec_aud = rec.recognize_google(audio)
-            print("Here is the audio input: " + rec_aud)
+        self.thread = threading.Thread(target=self.listen_and_translate)
+        self.thread.daemon = True
+        self.thread.start()
 
+    def listen_and_translate(self):
+        with sr.Microphone() as source:
+            print("Say something...")
+            self.output_label.config(text="Listening...")
 
-            if rec_aud.lower() == "stop":
-                print("Stopping the program.")
-                break
+            while True:
+                try:
+                    audio = self.recognizer.listen(source, timeout=5)
+                    user_input = self.recognizer.recognize_google(audio)
 
-            to_translate = translator.translate(rec_aud, src=inp_lang, dest=out_lang)
-            translated_text = to_translate.text
-            print("The translated text is: ", translated_text)
+                    if user_input.lower().strip() == "stop":
+                        self.output_label.config(text="Stopping the program.")
+                        self.master.quit()
+                        return
 
-            with tempfile.NamedTemporaryFile(delete=False) as temp_audio_file:
-                speak = gTTS(text=translated_text, lang=out_lang, slow=False)
-                speak.save(temp_audio_file.name)
+                    translated_result = translator.translate(user_input, src='hi', dest='en')
+                    translated_text = translated_result.text
 
-            pygame.mixer.init()
+                    with tempfile.NamedTemporaryFile(delete=False) as temp_audio_file:
+                        speak = gTTS(text=translated_text, lang='en', slow=False)
+                        speak.save(temp_audio_file.name)
 
-            pygame.mixer.music.load(temp_audio_file.name)
+                    pygame.mixer.init()
+                    pygame.mixer.music.load(temp_audio_file.name)
+                    pygame.mixer.music.play()
 
-            pygame.mixer.music.play()
+                    while pygame.mixer.music.get_busy():
+                        pygame.time.Clock().tick(10)
 
-            while pygame.mixer.music.get_busy():
-                pygame.time.Clock().tick(10)
+                    time.sleep(1)
 
-            time.sleep(1)
+                    try:
+                        os.remove(temp_audio_file.name)
+                    except PermissionError:
+                        print("PermissionError: The file is still in use and cannot be deleted immediately.")
+                        print("You might want to handle the deletion at a later point in your program.")
 
-            try:
-                os.remove(temp_audio_file.name)
-            except PermissionError:
-                print("PermissionError: The file is still in use and cannot be deleted immediately.")
-                print("You might want to handle the deletion at a later point in your program.")
+                    self.output_label.config(text=f"Translated text: {translated_text}")
 
-        except sr.UnknownValueError:
-            print("Speech Recognition could not understand audio")
-        except sr.RequestError as e:
-            print(f"Could not request results from Google Speech Recognition service; {e}")
+                except sr.UnknownValueError:
+                    self.output_label.config(text="Speech Recognition could not understand audio")
+                except sr.RequestError as e:
+                    self.output_label.config(text=f"Could not request results from Google Speech Recognition service; {e}")
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = TranslatorApp(root)
+    root.mainloop()
